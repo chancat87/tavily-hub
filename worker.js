@@ -597,11 +597,14 @@ export default {
 
     // 4. 客户端可选鉴权检查 (PROXY_TOKEN)
     if (env.PROXY_TOKEN && env.PROXY_TOKEN.trim().length > 0) {
-      const clientAuth = request.headers.get('x-api-key') || 
-                        request.headers.get('authorization')?.replace('Bearer ', '') ||
-                        (bodyJson && typeof bodyJson.api_key === 'string' ? bodyJson.api_key : null);
+      const authHeader = request.headers.get('authorization') || '';
+      const bearerToken = authHeader.replace(/^Bearer\s+/i, '').trim();
+      const clientAuth = request.headers.get('x-api-key')?.trim() || 
+                        request.headers.get('x-tavily-api-key')?.trim() ||
+                        (bearerToken.length > 0 ? bearerToken : null) ||
+                        (bodyJson && typeof bodyJson.api_key === 'string' ? bodyJson.api_key.trim() : null);
 
-      if (clientAuth !== env.PROXY_TOKEN && !isStatusAdmin) {
+      if (clientAuth !== env.PROXY_TOKEN.trim() && !isStatusAdmin) {
         return new Response(JSON.stringify({ error: 'Unauthorized', message: 'Invalid or missing proxy access token' }), {
           status: 401,
           headers: { 'Content-Type': 'application/json' },

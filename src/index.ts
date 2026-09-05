@@ -88,11 +88,14 @@ app.all('*', async (c) => {
 
   // （可选）客户端鉴权校验：如果配置了 PROXY_TOKEN，必须带上才能调用
   if (c.env.PROXY_TOKEN && c.env.PROXY_TOKEN.trim().length > 0) {
-    const clientKey = c.req.header('x-api-key') || 
-                      c.req.header('authorization')?.replace('Bearer ', '') ||
-                      (bodyJson && typeof bodyJson.api_key === 'string' ? bodyJson.api_key : null);
+    const authHeader = c.req.header('authorization') || '';
+    const bearerToken = authHeader.replace(/^Bearer\s+/i, '').trim();
+    const clientKey = c.req.header('x-api-key')?.trim() || 
+                      c.req.header('x-tavily-api-key')?.trim() ||
+                      (bearerToken.length > 0 ? bearerToken : null) ||
+                      (bodyJson && typeof bodyJson.api_key === 'string' ? bodyJson.api_key.trim() : null);
 
-    if (clientKey !== c.env.PROXY_TOKEN && !isStatusAdmin) {
+    if (clientKey !== c.env.PROXY_TOKEN.trim() && !isStatusAdmin) {
       return c.json({ error: 'Unauthorized', message: 'Invalid or missing proxy access token' }, 401);
     }
   }
