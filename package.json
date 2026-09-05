@@ -1,0 +1,30 @@
+{
+  "name": "tavily-hub",
+  "version": "1.0.0",
+  "description": "High-performance, lightweight Tavily API Key load balancer and reverse proxy with real-time credits/uptime dashboard for Cloudflare Workers.",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "tavily",
+    "tavily-api",
+    "load-balancer",
+    "proxy",
+    "cloudflare-workers",
+    "hono",
+    "status-page"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "hono": "^4.6.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240903.0",
+    "typescript": "^5.5.4",
+    "wrangler": "^3.75.0"
+  }
+}

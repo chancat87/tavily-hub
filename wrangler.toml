@@ -1,0 +1,17 @@
+name = "tavily-hub"
+main = "src/index.ts"
+compatibility_date = "2024-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# 访问 Uptime 状态看板的密钥 (例: https://your-worker.workers.dev/status?token=admin_secret)
+# 不带 token 或 token 错误时直接返回 404
+STATUS_TOKEN = "admin_secret_change_me"
+
+# （可选）调用代理时的客户端鉴权密钥。
+# 如果设置了此值，客户端请求必须携带 Authorization: Bearer 你的密钥 或 x-api-key / {"api_key": "你的密钥"}
+# 如果留空，则对外开放（直接透传）
+PROXY_TOKEN = ""
+
+# Tavily API Keys 列表（以 tvly- 开头，逗号、分号或换行分隔）
+TAVILY_KEYS = "tvly-key1,tvly-key2"
