@@ -199,7 +199,7 @@ export class KeyPool {
         plan: k.plan,
         successCount: k.successCount,
         errorCount: k.errorCount,
-        lastUsed: k.lastUsed ? new Date(k.lastUsed).toLocaleTimeString('zh-CN', { hour12: false }) : null,
+        lastUsed: k.lastUsed ? new Date(k.lastUsed).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : null,
         lastError: k.lastError,
       })),
     };
