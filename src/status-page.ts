@@ -313,6 +313,7 @@ export function renderStatusPage(stats: PoolStats, token: string): string {
       transition: border-color 0.2s;
     }
     .playground-input:focus { border-color: var(--primary); }
+    .playground-input::placeholder { color: #64748b; opacity: 1; }
     .search-result-area { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 14px; font-size: 13px; }
     .result-header { color: var(--success); font-weight: 600; margin-bottom: 10px; }
     .result-error { color: var(--danger); font-weight: 500; }
@@ -357,7 +358,7 @@ export function renderStatusPage(stats: PoolStats, token: string): string {
         <div class="playground-sub">直接向网关发送真实搜索请求，测试连通性并实时观察耗时</div>
       </div>
       <div class="playground-input-group">
-        <input id="searchQueryInput" class="playground-input" type="text" placeholder="请输入搜索关键词进行测试，例如：人工智能技术、开源项目、最新资讯..." value="" />
+        <input id="searchQueryInput" class="playground-input" type="text" placeholder="输入搜索关键词测试连通性，例如：人工智能、开源项目、科技资讯..." value="" />
         <button id="searchTestBtn" class="btn" onclick="runLiveSearch()">🚀 发送真实 Tavily 搜索</button>
       </div>
       <div id="searchResultArea" class="search-result-area hidden"></div>
