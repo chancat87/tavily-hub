@@ -15,8 +15,6 @@ export class KeyPool {
   private keys: KeyItem[] = [];
   private rawKeysString: string = '';
   private currentIndex: number = 0;
-  private totalSuccess: number = 0;
-  private totalFailures: number = 0;
 
   private constructor() {}
 
@@ -58,8 +56,7 @@ export class KeyPool {
         usage: null,
         limit: null,
         plan: null,
-        successCount: 0,
-        errorCount: 0,
+        latency: null,
         lastUsed: null,
         lastError: null,
       };
@@ -85,10 +82,8 @@ export class KeyPool {
   }
 
   public recordSuccess(keyId: number): void {
-    this.totalSuccess++;
     const target = this.keys.find((k) => k.id === keyId);
     if (target) {
-      target.successCount++;
       target.lastUsed = Date.now();
       target.status = 'active';
       target.lastError = null;
@@ -96,10 +91,8 @@ export class KeyPool {
   }
 
   public recordFailure(keyId: number, status: KeyStatus, errorMessage: string): void {
-    this.totalFailures++;
     const target = this.keys.find((k) => k.id === keyId);
     if (target) {
-      target.errorCount++;
       target.lastUsed = Date.now();
       target.status = status;
       target.lastError = errorMessage;
@@ -110,6 +103,7 @@ export class KeyPool {
    * 利用 Tavily 官方 GET /usage 接口进行 100% 零扣费健康测活与真实余额拉取！
    */
   public async probeKey(item: KeyItem): Promise<KeyStatus> {
+    const startTime = Date.now();
     try {
       const response = await fetch('https://api.tavily.com/usage', {
         method: 'GET',
@@ -117,6 +111,9 @@ export class KeyPool {
           'Authorization': `Bearer ${item.rawKey}`,
         },
       });
+      const latency = Date.now() - startTime;
+      item.latency = latency;
+      item.lastUsed = Date.now();
 
       if (response.ok) {
         const data: any = await response.json();
@@ -127,7 +124,6 @@ export class KeyPool {
         item.usage = keyUsage;
         item.limit = keyLimit;
         item.plan = planType;
-        item.lastUsed = Date.now();
 
         // 如果已用点数达到了上限，自动标记为已耗尽 (exhausted)
         if (typeof keyLimit === 'number' && keyLimit > 0 && keyUsage >= keyLimit) {
@@ -140,16 +136,14 @@ export class KeyPool {
       } else if (response.status === 401) {
         item.status = 'invalid';
         item.lastError = 'Invalid API key (401)';
-        item.lastUsed = Date.now();
-      } else if (response.status === 402) {
+      } else if (response.status === 402 || response.status === 432) {
         item.status = 'exhausted';
-        item.lastError = 'Payment Required (402)';
-        item.lastUsed = Date.now();
+        item.lastError = 'Payment Required (402/432)';
       } else {
         item.status = 'active';
-        item.lastUsed = Date.now();
       }
     } catch (e: any) {
+      item.latency = Date.now() - startTime;
       item.lastError = e?.message || 'Usage probe failed';
     }
     return item.status;
@@ -171,6 +165,8 @@ export class KeyPool {
     let invalid = 0;
     let totalUsage = 0;
     let totalLimit = 0;
+    let latencySum = 0;
+    let latencyCount = 0;
 
     for (const k of this.keys) {
       if (k.status === 'active') active++;
@@ -179,7 +175,13 @@ export class KeyPool {
 
       if (typeof k.usage === 'number') totalUsage += k.usage;
       if (typeof k.limit === 'number') totalLimit += k.limit;
+      if (typeof k.latency === 'number' && k.latency > 0) {
+        latencySum += k.latency;
+        latencyCount++;
+      }
     }
+
+    const avgLatency = latencyCount > 0 ? Math.round(latencySum / latencyCount) : null;
 
     return {
       totalKeys: this.keys.length,
@@ -188,8 +190,7 @@ export class KeyPool {
       invalidKeys: invalid,
       totalUsage,
       totalLimit,
-      totalSuccess: this.totalSuccess,
-      totalFailures: this.totalFailures,
+      avgLatency,
       keys: this.keys.map((k) => ({
         id: k.id,
         maskedKey: k.maskedKey,
@@ -197,8 +198,7 @@ export class KeyPool {
         usage: k.usage,
         limit: k.limit,
         plan: k.plan,
-        successCount: k.successCount,
-        errorCount: k.errorCount,
+        latency: k.latency,
         lastUsed: k.lastUsed ? new Date(k.lastUsed).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : null,
         lastError: k.lastError,
       })),

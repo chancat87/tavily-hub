@@ -3,48 +3,61 @@ import { PoolStats } from './types';
 /**
  * 渲染 Tavily Hub Uptime 状态大盘 HTML
  * 亮点特性：
- * 1. 独家支持每个 Key 的「月度额度真实进度条」与套餐类型（通过 GET /usage 零扣费拉取）
- * 2. 汇总大盘显示总池子可用点数
- * 3. 页面载入自动调用 history.replaceState 洗白地址栏中的敏感 token
- * 4. 内置实时 API 测试沙盒，支持直接发起 Tavily 搜索并观察结果与耗时
- * 5. 全程 AJAX 平滑增量渲染，0 闪烁，不重载网页
+ * 1. 独家支持每个 Key 的「月度额度真实进度条」与套餐类型（通过 GET /usage 零扣费官方拉取）
+ * 2. 真实网络延迟（ms）探测与健康状态检测，彻底杜绝无状态 Edge 漂移与虚假 0 次统计
+ * 3. 汇总大盘显示总池子可用点数与平均测活延迟
+ * 4. 首次载入自动静默测活拉取真实余额，页面载入自动 history.replaceState 洗白敏感 token
+ * 5. 内置实时 API 测试沙盒，支持直接发起真实搜索并观察链路延迟
+ * 6. 全程 AJAX 平滑增量渲染，0 闪烁，不重载网页
  */
 export function renderStatusPage(stats: PoolStats, token: string): string {
-  const totalReqs = stats.totalSuccess + stats.totalFailures;
-  const successRate = totalReqs > 0 ? ((stats.totalSuccess / totalReqs) * 100).toFixed(1) : '100.0';
-
   const remainingTotal = stats.totalLimit > 0 ? Math.max(0, stats.totalLimit - stats.totalUsage) : '-';
+  const avgLatencyText = stats.avgLatency ? `${stats.avgLatency}ms` : '--';
 
-  const keysHtml = stats.keys
-    .map((k) => {
-      let badgeClass = 'badge-active';
-      let badgeText = '正常活跃';
-      let dotColor = 'var(--success)';
+  const renderKeyCard = (k: PoolStats['keys'][0]) => {
+    let badgeClass = 'badge-active';
+    let badgeText = '正常活跃';
+    let dotColor = 'var(--success)';
+    let statusText = '🟢 响应正常';
+    let statusValClass = 'success-val';
 
-      if (k.status === 'exhausted') {
-        badgeClass = 'badge-exhausted';
-        badgeText = '额度已用尽';
-        dotColor = 'var(--warning)';
-      } else if (k.status === 'invalid') {
-        badgeClass = 'badge-invalid';
-        badgeText = '失效/错误 (401)';
-        dotColor = 'var(--danger)';
-      }
+    if (k.status === 'exhausted') {
+      badgeClass = 'badge-exhausted';
+      badgeText = '额度已用尽';
+      dotColor = 'var(--warning)';
+      statusText = '🟡 额度耗尽';
+      statusValClass = 'warning-val';
+    } else if (k.status === 'invalid') {
+      badgeClass = 'badge-invalid';
+      badgeText = '失效/错误 (401)';
+      dotColor = 'var(--danger)';
+      statusText = '🔴 密钥失效';
+      statusValClass = 'danger-val';
+    }
 
-      // 计算额度进度百分比
-      let progressPercent = 0;
-      let progressColor = 'var(--success)';
-      let quotaText = '尚未同步额度（请点击右上角测活）';
+    // 计算额度进度百分比
+    let progressPercent = 0;
+    let progressColor = 'var(--success)';
+    let quotaText = '尚未同步额度（测活中...）';
 
-      if (typeof k.usage === 'number' && typeof k.limit === 'number' && k.limit > 0) {
-        progressPercent = Math.min(100, Math.round((k.usage / k.limit) * 100));
-        const remain = Math.max(0, k.limit - k.usage);
-        quotaText = `已用 ${k.usage} / ${k.limit} 点 · 剩余 ${remain} 点 (${progressPercent}%) · 计划: ${k.plan || 'free'}`;
-        if (progressPercent > 80) progressColor = 'var(--danger)';
-        else if (progressPercent > 50) progressColor = 'var(--warning)';
-      }
+    if (typeof k.usage === 'number' && typeof k.limit === 'number' && k.limit > 0) {
+      progressPercent = Math.min(100, Math.round((k.usage / k.limit) * 100));
+      const remain = Math.max(0, k.limit - k.usage);
+      quotaText = `已用 ${k.usage} / ${k.limit} 点 · 剩余 ${remain} 点 (${progressPercent}%) · 计划: ${k.plan || 'free'}`;
+      if (progressPercent > 80) progressColor = 'var(--danger)';
+      else if (progressPercent > 50) progressColor = 'var(--warning)';
+    }
 
-      return `
+    let latencyDisplay = '--';
+    let latencyClass = '';
+    if (typeof k.latency === 'number' && k.latency > 0) {
+      latencyDisplay = `${k.latency}ms`;
+      if (k.latency < 300) latencyClass = 'success-val';
+      else if (k.latency < 800) latencyClass = 'warning-val';
+      else latencyClass = 'danger-val';
+    }
+
+    return `
       <div class="key-card">
         <div class="key-header">
           <div class="key-title">
@@ -55,7 +68,7 @@ export function renderStatusPage(stats: PoolStats, token: string): string {
           <span class="badge ${badgeClass}">${badgeText}</span>
         </div>
 
-        <!-- 真实月度额度进度条 (Tavily 特色功能) -->
+        <!-- 真实月度额度进度条 (Tavily 官方零扣费直连拉取) -->
         <div class="quota-box">
           <div class="quota-meta">
             <span>📊 月度点数消耗</span>
@@ -68,30 +81,31 @@ export function renderStatusPage(stats: PoolStats, token: string): string {
 
         <div class="key-meta">
           <div class="meta-item">
-            <span class="meta-label">调用成功</span>
-            <span class="meta-val success-val">${k.successCount} 次</span>
+            <span class="meta-label">测活状态</span>
+            <span class="meta-val ${statusValClass}">${statusText}</span>
           </div>
           <div class="meta-item">
-            <span class="meta-label">异常拦截</span>
-            <span class="meta-val danger-val">${k.errorCount} 次</span>
+            <span class="meta-label">测活延迟</span>
+            <span class="meta-val ${latencyClass}">${latencyDisplay}</span>
           </div>
           <div class="meta-item">
-            <span class="meta-label">最后活跃</span>
-            <span class="meta-val">${k.lastUsed || '尚未调用'}</span>
+            <span class="meta-label">最近测活</span>
+            <span class="meta-val">${k.lastUsed || '尚未测活'}</span>
           </div>
         </div>
         ${k.lastError ? `<div class="key-error-msg">⚠️ ${k.lastError}</div>` : ''}
       </div>
     `;
-    })
-    .join('');
+  };
+
+  const keysHtml = stats.keys.map(renderKeyCard).join('');
 
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tavily Hub · Uptime & Credits Status</title>
+  <title>Tavily Hub · 状态大盘与额度监控</title>
   <style>
     :root {
       --bg: #090d16;
@@ -251,10 +265,11 @@ export function renderStatusPage(stats: PoolStats, token: string): string {
     }
 
     .key-meta { display: flex; gap: 24px; flex-wrap: wrap; }
-    .meta-item { display: flex; flex-direction: column; gap: 2px; }
+    .meta-item { display: flex; flex-direction: column; gap: 2px; min-width: 100px; }
     .meta-label { font-size: 11px; color: var(--text-muted); }
     .meta-val { font-size: 13px; font-weight: 500; }
     .success-val { color: var(--success); }
+    .warning-val { color: var(--warning); }
     .danger-val { color: var(--danger); }
     .key-error-msg {
       margin-top: 10px;
@@ -318,7 +333,7 @@ export function renderStatusPage(stats: PoolStats, token: string): string {
         <div class="logo-badge">🔍</div>
         <div>
           <h1>Tavily Hub 状态大盘</h1>
-          <div class="subtitle">实时负载均衡与月度点数监控</div>
+          <div class="subtitle">实时负载均衡与月度额度监控</div>
         </div>
       </div>
       <button id="checkBtn" class="btn" onclick="checkAll()">⚡ 一键免费测活与刷新余额</button>
@@ -329,7 +344,7 @@ export function renderStatusPage(stats: PoolStats, token: string): string {
       <div class="stat-card"><div class="stat-label">活跃存活</div><div class="stat-val active" id="statActive">${stats.activeKeys}</div></div>
       <div class="stat-card"><div class="stat-label">额度耗尽</div><div class="stat-val exhausted" id="statExhausted">${stats.exhaustedKeys}</div></div>
       <div class="stat-card"><div class="stat-label">总池子剩余点数</div><div class="stat-val credits" id="statRemain">${remainingTotal}</div></div>
-      <div class="stat-card"><div class="stat-label">成功调用率</div><div class="stat-val" id="statRate">${successRate}%</div></div>
+      <div class="stat-card"><div class="stat-label">平均测活延迟</div><div class="stat-val" id="statLatency">${avgLatencyText}</div></div>
     </div>
 
     <div class="section-title">API 密钥健康与剩余点数</div>
@@ -339,7 +354,7 @@ export function renderStatusPage(stats: PoolStats, token: string): string {
     <div class="playground-card">
       <div class="playground-header">
         <div class="playground-title">🧪 实时 Tavily API 搜索测试沙盒</div>
-        <div class="playground-sub">直接向网关发送真实搜索请求，测试连通性并实时累加调用计数</div>
+        <div class="playground-sub">直接向网关发送真实搜索请求，测试连通性并实时观察耗时</div>
       </div>
       <div class="playground-input-group">
         <input id="searchQueryInput" class="playground-input" type="text" placeholder="输入搜索词，例如：2026 最新科技头条" value="2026 最新人工智能突破" />
@@ -359,23 +374,25 @@ export function renderStatusPage(stats: PoolStats, token: string): string {
     }
 
     function renderStatsUI(stats) {
-      const total = stats.totalSuccess + stats.totalFailures;
-      const rate = total > 0 ? ((stats.totalSuccess / total) * 100).toFixed(1) : '100.0';
       const remain = stats.totalLimit > 0 ? Math.max(0, stats.totalLimit - stats.totalUsage) : '-';
+      const avgLat = stats.avgLatency ? stats.avgLatency + 'ms' : '--';
 
       document.getElementById('statTotal').textContent = stats.totalKeys;
       document.getElementById('statActive').textContent = stats.activeKeys;
       document.getElementById('statExhausted').textContent = stats.exhaustedKeys;
       document.getElementById('statRemain').textContent = remain;
-      document.getElementById('statRate').textContent = rate + '%';
+      document.getElementById('statLatency').textContent = avgLat;
 
       const container = document.getElementById('keysList');
       container.innerHTML = stats.keys.map(k => {
         let badge = 'badge-active', text = '正常活跃', dot = 'var(--success)';
+        let statusText = '🟢 响应正常', statusValClass = 'success-val';
         if (k.status === 'exhausted') {
           badge = 'badge-exhausted'; text = '额度已用尽'; dot = 'var(--warning)';
+          statusText = '🟡 额度耗尽'; statusValClass = 'warning-val';
         } else if (k.status === 'invalid') {
           badge = 'badge-invalid'; text = '失效/错误 (401)'; dot = 'var(--danger)';
+          statusText = '🔴 密钥失效'; statusValClass = 'danger-val';
         }
 
         let progressPercent = 0;
@@ -388,6 +405,15 @@ export function renderStatusPage(stats: PoolStats, token: string): string {
           quotaText = \`已用 \${k.usage} / \${k.limit} 点 · 剩余 \${r} 点 (\${progressPercent}%) · 计划: \${k.plan || 'free'}\`;
           if (progressPercent > 80) progressColor = 'var(--danger)';
           else if (progressPercent > 50) progressColor = 'var(--warning)';
+        }
+
+        let latencyDisplay = '--';
+        let latencyClass = '';
+        if (typeof k.latency === 'number' && k.latency > 0) {
+          latencyDisplay = k.latency + 'ms';
+          if (k.latency < 300) latencyClass = 'success-val';
+          else if (k.latency < 800) latencyClass = 'warning-val';
+          else latencyClass = 'danger-val';
         }
 
         return \`
@@ -412,9 +438,9 @@ export function renderStatusPage(stats: PoolStats, token: string): string {
             </div>
 
             <div class="key-meta">
-              <div class="meta-item"><span class="meta-label">调用成功</span><span class="meta-val success-val">\${k.successCount} 次</span></div>
-              <div class="meta-item"><span class="meta-label">异常拦截</span><span class="meta-val danger-val">\${k.errorCount} 次</span></div>
-              <div class="meta-item"><span class="meta-label">最后活跃</span><span class="meta-val">\${k.lastUsed || '尚未调用'}</span></div>
+              <div class="meta-item"><span class="meta-label">测活状态</span><span class="meta-val \${statusValClass}">\${statusText}</span></div>
+              <div class="meta-item"><span class="meta-label">测活延迟</span><span class="meta-val \${latencyClass}">\${latencyDisplay}</span></div>
+              <div class="meta-item"><span class="meta-label">最近测活</span><span class="meta-val">\${k.lastUsed || '尚未测活'}</span></div>
             </div>
             \${k.lastError ? \`<div class="key-error-msg">⚠️ \${k.lastError}</div>\` : ''}
           </div>
@@ -443,6 +469,12 @@ export function renderStatusPage(stats: PoolStats, token: string): string {
         btn.disabled = false;
         btn.textContent = '⚡ 一键免费测活与刷新余额';
       }
+    }
+
+    // 页面初次载入时：如果尚未拉取额度，自动静默触发一次测活（Tavily /usage 零扣费）
+    const initialKeys = ${JSON.stringify(stats.keys)};
+    if (initialKeys.some(k => !k.lastUsed)) {
+      setTimeout(() => { checkAll(); }, 200);
     }
 
     // 实时 API 测试沙盒

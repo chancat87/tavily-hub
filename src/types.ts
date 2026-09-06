@@ -8,8 +8,7 @@ export interface KeyItem {
   usage: number | null;
   limit: number | null;
   plan: string | null;
-  successCount: number;
-  errorCount: number;
+  latency: number | null;
   lastUsed: number | null;
   lastError: string | null;
 }
@@ -21,8 +20,7 @@ export interface PoolStats {
   invalidKeys: number;
   totalUsage: number;
   totalLimit: number;
-  totalSuccess: number;
-  totalFailures: number;
+  avgLatency: number | null;
   keys: Array<{
     id: number;
     maskedKey: string;
@@ -30,8 +28,7 @@ export interface PoolStats {
     usage: number | null;
     limit: number | null;
     plan: string | null;
-    successCount: number;
-    errorCount: number;
+    latency: number | null;
     lastUsed: string | null;
     lastError: string | null;
   }>;
