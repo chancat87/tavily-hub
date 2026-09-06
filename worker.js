@@ -321,7 +321,10 @@ function renderStatusPageHTML(stats, token) {
     .playground-input-group { display: flex; gap: 10px; flex-wrap: wrap; }
     .playground-input { flex: 1; min-width: 260px; background: #090d16; border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; color: var(--text); font-size: 13px; outline: none; transition: border-color 0.2s; }
     .playground-input:focus { border-color: var(--primary); }
-    .playground-input::placeholder { color: #64748b; opacity: 1; }
+    .playground-input::placeholder { color: #e2e8f0 !important; opacity: 1 !important; }
+    .playground-input::-webkit-input-placeholder { color: #e2e8f0 !important; opacity: 1 !important; }
+    .playground-input::-moz-placeholder { color: #e2e8f0 !important; opacity: 1 !important; }
+    .playground-input:-ms-input-placeholder { color: #e2e8f0 !important; }
     .search-result-area { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 14px; font-size: 13px; }
     .result-header { color: var(--success); font-weight: 600; margin-bottom: 10px; }
     .result-error { color: var(--danger); font-weight: 500; }

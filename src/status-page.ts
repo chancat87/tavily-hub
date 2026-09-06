@@ -313,7 +313,10 @@ export function renderStatusPage(stats: PoolStats, token: string): string {
       transition: border-color 0.2s;
     }
     .playground-input:focus { border-color: var(--primary); }
-    .playground-input::placeholder { color: #64748b; opacity: 1; }
+    .playground-input::placeholder { color: #e2e8f0 !important; opacity: 1 !important; }
+    .playground-input::-webkit-input-placeholder { color: #e2e8f0 !important; opacity: 1 !important; }
+    .playground-input::-moz-placeholder { color: #e2e8f0 !important; opacity: 1 !important; }
+    .playground-input:-ms-input-placeholder { color: #e2e8f0 !important; }
     .search-result-area { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 14px; font-size: 13px; }
     .result-header { color: var(--success); font-weight: 600; margin-bottom: 10px; }
     .result-error { color: var(--danger); font-weight: 500; }
