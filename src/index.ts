@@ -87,17 +87,41 @@ app.all('*', async (c) => {
   }
 
   // （可选）客户端鉴权校验：如果配置了 PROXY_TOKEN，必须带上才能调用
-  if (c.env.PROXY_TOKEN && c.env.PROXY_TOKEN.trim().length > 0) {
-    const authHeader = c.req.header('authorization') || '';
-    const bearerToken = authHeader.replace(/^Bearer\s+/i, '').trim();
-    const clientKey = c.req.header('x-api-key')?.trim() || 
-                      c.req.header('x-tavily-api-key')?.trim() ||
-                      (bearerToken.length > 0 ? bearerToken : null) ||
-                      (bodyJson && typeof bodyJson.api_key === 'string' ? bodyJson.api_key.trim() : null);
+  const cleanToken = (str?: string | null): string => {
+    if (!str) return '';
+    return str.trim().replace(/^["']|["']$/g, '');
+  };
 
-    if (clientKey !== c.env.PROXY_TOKEN.trim() && !isStatusAdmin) {
-      return c.json({ error: 'Unauthorized', message: 'Invalid or missing proxy access token' }, 401);
+  const expectedProxyToken = cleanToken(c.env.PROXY_TOKEN);
+  if (expectedProxyToken.length > 0) {
+    const authHeader = c.req.header('authorization') || '';
+    const bearerToken = cleanToken(authHeader.replace(/^Bearer\s+/i, ''));
+    const clientKey = cleanToken(
+      c.req.header('x-api-key') || 
+      c.req.header('x-tavily-api-key') || 
+      (bearerToken.length > 0 ? bearerToken : null) ||
+      (bodyJson && typeof bodyJson.api_key === 'string' ? bodyJson.api_key : null)
+    );
+
+    if (clientKey !== expectedProxyToken && !isStatusAdmin) {
+      const mask = (t: string) => t ? `${t.slice(0, 4)}...${t.slice(-4)} (len:${t.length})` : 'none';
+      return c.json({ 
+        error: 'Unauthorized', 
+        message: 'Invalid or missing proxy access token',
+        hint: clientKey 
+          ? `Token mismatch. Received: ${mask(clientKey)}, Expected: ${mask(expectedProxyToken)}`
+          : 'No token found in Authorization header, x-api-key, x-tavily-api-key, or request body'
+      }, 401);
     }
+  }
+
+  // 自动兼容客户端路径（自动剥离 /v1 前缀与末尾多余斜杠）
+  let normalizedPath = url.pathname;
+  if (normalizedPath.startsWith('/v1/')) {
+    normalizedPath = normalizedPath.replace(/^\/v1\//, '/');
+  }
+  if (normalizedPath.length > 1 && normalizedPath.endsWith('/')) {
+    normalizedPath = normalizedPath.slice(0, -1);
   }
 
   const maxRetries = 3;
@@ -114,12 +138,13 @@ app.all('*', async (c) => {
     upstreamParams.delete('token');
     upstreamParams.delete('key');
     const queryStr = upstreamParams.toString() ? '?' + upstreamParams.toString() : '';
-    const targetUrl = new URL(url.pathname + queryStr, 'https://api.tavily.com');
+    const targetUrl = new URL(normalizedPath + queryStr, 'https://api.tavily.com');
 
     // 构造发往 Tavily 官方的 Headers
     const upstreamHeaders = new Headers(rawReq.headers);
     upstreamHeaders.delete('x-status-token');
     upstreamHeaders.delete('x-api-key');
+    upstreamHeaders.delete('x-tavily-api-key');
     // 注入当前轮询选中的 Tavily API Key
     upstreamHeaders.set('Authorization', `Bearer ${keyItem.rawKey}`);
     upstreamHeaders.delete('host');
@@ -137,11 +162,16 @@ app.all('*', async (c) => {
     }
 
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 20000);
+
       const upstreamRes = await fetch(targetUrl.toString(), {
         method: rawReq.method,
         headers: upstreamHeaders,
         body: finalBody,
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
       // 401（Key 失效）或 402/432（额度耗尽）：熔断并切换下一个 Key 重试
       if (upstreamRes.status === 401) {
