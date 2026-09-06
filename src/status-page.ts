@@ -18,7 +18,7 @@ export function renderStatusPage(stats: PoolStats, token: string): string {
     let badgeClass = 'badge-active';
     let badgeText = '正常活跃';
     let dotColor = 'var(--success)';
-    let statusText = '🟢 响应正常';
+    let statusText = k.lastUsed ? '🟢 响应正常' : '🟢 正常就绪';
     let statusValClass = 'success-val';
 
     if (k.status === 'exhausted') {
@@ -38,7 +38,7 @@ export function renderStatusPage(stats: PoolStats, token: string): string {
     // 计算额度进度百分比
     let progressPercent = 0;
     let progressColor = 'var(--success)';
-    let quotaText = '尚未同步额度（测活中...）';
+    let quotaText = '尚未同步额度（可点击右上角测活）';
 
     if (typeof k.usage === 'number' && typeof k.limit === 'number' && k.limit > 0) {
       progressPercent = Math.min(100, Math.round((k.usage / k.limit) * 100));
@@ -357,7 +357,7 @@ export function renderStatusPage(stats: PoolStats, token: string): string {
         <div class="playground-sub">直接向网关发送真实搜索请求，测试连通性并实时观察耗时</div>
       </div>
       <div class="playground-input-group">
-        <input id="searchQueryInput" class="playground-input" type="text" placeholder="输入搜索词，例如：2026 最新科技头条" value="2026 最新人工智能突破" />
+        <input id="searchQueryInput" class="playground-input" type="text" placeholder="请输入搜索关键词进行测试，例如：人工智能技术、开源项目、最新资讯..." value="" />
         <button id="searchTestBtn" class="btn" onclick="runLiveSearch()">🚀 发送真实 Tavily 搜索</button>
       </div>
       <div id="searchResultArea" class="search-result-area hidden"></div>
@@ -386,7 +386,7 @@ export function renderStatusPage(stats: PoolStats, token: string): string {
       const container = document.getElementById('keysList');
       container.innerHTML = stats.keys.map(k => {
         let badge = 'badge-active', text = '正常活跃', dot = 'var(--success)';
-        let statusText = '🟢 响应正常', statusValClass = 'success-val';
+        let statusText = k.lastUsed ? '🟢 响应正常' : '🟢 正常就绪', statusValClass = 'success-val';
         if (k.status === 'exhausted') {
           badge = 'badge-exhausted'; text = '额度已用尽'; dot = 'var(--warning)';
           statusText = '🟡 额度耗尽'; statusValClass = 'warning-val';
@@ -397,7 +397,7 @@ export function renderStatusPage(stats: PoolStats, token: string): string {
 
         let progressPercent = 0;
         let progressColor = 'var(--success)';
-        let quotaText = '尚未同步额度';
+        let quotaText = '尚未同步额度（可点击右上角测活）';
 
         if (typeof k.usage === 'number' && typeof k.limit === 'number' && k.limit > 0) {
           progressPercent = Math.min(100, Math.round((k.usage / k.limit) * 100));
@@ -469,12 +469,6 @@ export function renderStatusPage(stats: PoolStats, token: string): string {
         btn.disabled = false;
         btn.textContent = '⚡ 一键免费测活与刷新余额';
       }
-    }
-
-    // 页面初次载入时：如果尚未拉取额度，自动静默触发一次测活（Tavily /usage 零扣费）
-    const initialKeys = ${JSON.stringify(stats.keys)};
-    if (initialKeys.some(k => !k.lastUsed)) {
-      setTimeout(() => { checkAll(); }, 200);
     }
 
     // 实时 API 测试沙盒
