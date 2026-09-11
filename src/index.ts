@@ -17,11 +17,12 @@ app.use('*', async (c, next) => {
 });
 
 // 3. Uptime 状态看板路由（隐蔽免密安全设计：带 token 访问，失败直接 404 装死）
+// 安全设计：STATUS_TOKEN 未配置时一律 404（fail closed），绝不回退到弱默认值
 app.get('/status', (c) => {
-  const expectedToken = c.env.STATUS_TOKEN || 'admin';
+  const expectedToken = c.env.STATUS_TOKEN;
   const queryToken = c.req.query('token') || c.req.query('key');
 
-  if (!queryToken || queryToken !== expectedToken) {
+  if (!expectedToken || !queryToken || queryToken !== expectedToken) {
     return c.text('Not Found', 404);
   }
 
@@ -30,14 +31,25 @@ app.get('/status', (c) => {
   return c.html(html);
 });
 
-// 4. 一键免费健康测活与余额同步接口
+// 4. 一键免费健康测活与余额同步接口（带 30 秒最小间隔频控，防止接口被脚本滥用）
+const PROBE_MIN_INTERVAL_MS = 30_000;
+let lastProbeAt = 0;
+
 app.post('/api/check', async (c) => {
-  const expectedToken = c.env.STATUS_TOKEN || 'admin';
+  const expectedToken = c.env.STATUS_TOKEN;
   const queryToken = c.req.query('token') || c.req.query('key');
 
-  if (!queryToken || queryToken !== expectedToken) {
+  if (!expectedToken || !queryToken || queryToken !== expectedToken) {
     return c.text('Not Found', 404);
   }
+
+  if (Date.now() - lastProbeAt < PROBE_MIN_INTERVAL_MS) {
+    return c.json(
+      { error: 'Too Many Requests', message: `Health check is rate limited, retry after ${PROBE_MIN_INTERVAL_MS / 1000}s` },
+      429
+    );
+  }
+  lastProbeAt = Date.now();
 
   const pool = KeyPool.getInstance();
   await pool.probeAll();
@@ -46,10 +58,10 @@ app.post('/api/check', async (c) => {
 
 // 5. JSON 格式状态监控接口（便于接入 UptimeRobot 等外部监控告警）
 app.get('/api/status', (c) => {
-  const expectedToken = c.env.STATUS_TOKEN || 'admin';
+  const expectedToken = c.env.STATUS_TOKEN;
   const queryToken = c.req.query('token') || c.req.query('key');
 
-  if (!queryToken || queryToken !== expectedToken) {
+  if (!expectedToken || !queryToken || queryToken !== expectedToken) {
     return c.text('Not Found', 404);
   }
 
@@ -62,7 +74,7 @@ app.all('*', async (c) => {
   const pool = KeyPool.getInstance();
   const rawReq = c.req.raw;
   const url = new URL(rawReq.url);
-  const expectedStatusToken = c.env.STATUS_TOKEN || 'admin';
+  const expectedStatusToken = c.env.STATUS_TOKEN || '';
   const queryToken = c.req.query('token') || c.req.query('key');
   const statusTokenHeader = c.req.header('x-status-token');
   const isStatusAdmin = (queryToken && queryToken === expectedStatusToken) || 
@@ -104,12 +116,12 @@ app.all('*', async (c) => {
     );
 
     if (clientKey !== expectedProxyToken && !isStatusAdmin) {
-      const mask = (t: string) => t ? `${t.slice(0, 4)}...${t.slice(-4)} (len:${t.length})` : 'none';
-      return c.json({ 
-        error: 'Unauthorized', 
+      // 安全设计：不回显任何服务器端 token 信息（Received 的 mask 同样多余且可被利用做猜测校验）
+      return c.json({
+        error: 'Unauthorized',
         message: 'Invalid or missing proxy access token',
-        hint: clientKey 
-          ? `Token mismatch. Received: ${mask(clientKey)}, Expected: ${mask(expectedProxyToken)}`
+        hint: clientKey
+          ? 'Token mismatch. Please check your proxy access token.'
           : 'No token found in Authorization header, x-api-key, x-tavily-api-key, or request body'
       }, 401);
     }
@@ -176,12 +188,22 @@ app.all('*', async (c) => {
       // 401（Key 失效）或 402/432（额度耗尽）：熔断并切换下一个 Key 重试
       if (upstreamRes.status === 401) {
         pool.recordFailure(keyItem.id, 'invalid', 'Tavily 401: Invalid API Key');
+        try { await upstreamRes.body?.cancel(); } catch { /* 忽略释放异常 */ }
         attempts++;
         continue;
       }
 
       if (upstreamRes.status === 402 || upstreamRes.status === 432) {
         pool.recordFailure(keyItem.id, 'exhausted', 'Tavily 402/432: Credits Limit Reached');
+        try { await upstreamRes.body?.cancel(); } catch { /* 忽略释放异常 */ }
+        attempts++;
+        continue;
+      }
+
+      // 429（瞬时限速）：冷却 60 秒后自动回归候选池，换 Key 重试
+      if (upstreamRes.status === 429) {
+        pool.recordRateLimit(keyItem.id, 60_000);
+        try { await upstreamRes.body?.cancel(); } catch { /* 忽略释放异常 */ }
         attempts++;
         continue;
       }

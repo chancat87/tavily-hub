@@ -39,6 +39,7 @@
 2. 命名（如 `tavily-hub`）后点击 **部署**。
 3. 进入刚刚创建的 Worker，点击右上角的 **快速编辑（Quick Edit）**。
 4. 打开本项目根目录下的 [`worker.js`](worker.js)，**全选复制全部代码，覆盖粘贴到网页编辑器中**，点击 **保存并部署**。
+   > ⚠️ 注意：`worker.js` 是由 `src/` 源码构建的产物（`npm run build` 生成）。**请勿手改 `worker.js`**；修改了 `src/` 源码后务必重新执行 `npm install && npm run build` 再提交，否则网页粘贴部署与 Wrangler 部署的行为会不一致。
 5. 返回 Worker 页面，进入 **设置 (Settings)** -> **变量和机密 (Variables and Secrets)**，添加以下环境变量：
    - `TAVILY_KEYS`：你的 Tavily API 密钥列表（以 `tvly-` 开头），多个密钥用逗号 `,` 隔开（例如：`tvly-key1,tvly-key2`）。
    - `STATUS_TOKEN`：你自定义的状态页访问密码（例如：`admin123`）。
@@ -130,9 +131,51 @@ https://your-worker.workers.dev/status?token=你的STATUS_TOKEN
 
 | 变量名 | 必填 | 默认值 | 说明 |
 | :--- | :---: | :---: | :--- |
-| `TAVILY_KEYS` | 是 | 无 | 待轮询的 Tavily API Key 列表（以 `tvly-` 开头），逗号分隔 |
-| `STATUS_TOKEN` | 是 | `admin` | 查看 Uptime 监控看板的 URL 秘钥凭据 |
-| `PROXY_TOKEN` | 否 | 空 | 客户端调用反代接口的保护秘钥；若配置，请求需带 Token |
+| `TAVILY_KEYS` | 是 | 无 | 待轮询的 Tavily API Key 列表（以 `tvly-` 开头），逗号、分号或换行分隔 |
+| `STATUS_TOKEN` | **是** | **无** | 查看 `/status` 看板与 `/api/check`、`/api/status` 接口的访问凭据。**未配置时这些页面一律返回 404（有意设计，防止弱口令后门）** |
+| `PROXY_TOKEN` | 否 | 空 | 客户端调用反代接口的保护秘钥；若配置，请求需带 Token（请求头或 JSON Body 的 `api_key` 字段均可）；**留空则知道网址即可调用你的 Key 池** |
+
+### 🔧 如何配置环境变量（两种方式任选其一）
+
+#### 方式 A：Cloudflare 网页后台（配合"部署方式一"）
+
+进入你的 Worker → **设置 (Settings)** → **变量和机密 (Variables and Secrets)**，逐条添加（类型选"文本/Text"即可）：
+
+| 变量名 | 填写示例 | 说明 |
+| --- | --- | --- |
+| `TAVILY_KEYS` | `tvly-AbCdEf123456,tvly-GhIjKl654321` | 多把 Key 用英文逗号隔开（也支持分号或换行分隔） |
+| `STATUS_TOKEN` | `my-dashboard-8899` | 自定一个长随机字符串，**不要用 admin / 123456 这类弱值** |
+| `PROXY_TOKEN`（可选） | `my-proxy-secret-666` | 单人自用也建议配置，防止网址泄露后 Key 池被人白嫖 |
+
+保存后立即生效，无需重新部署。配置完成后访问看板：
+
+```text
+https://你的Worker域名/status?token=my-dashboard-8899
+```
+
+#### 方式 B：Wrangler CLI（配合"部署方式二"）
+
+直接编辑 `wrangler.toml` 的 `[vars]` 段：
+
+```toml
+[vars]
+STATUS_TOKEN = "my-dashboard-8899"
+PROXY_TOKEN = "my-proxy-secret-666"
+TAVILY_KEYS = "tvly-AbCdEf123456,tvly-GhIjKl654321"
+```
+
+> 💡 也可以不把秘钥写进仓库，改用机密方式注入：`npx wrangler secret put TAVILY_KEYS`（回车后粘贴值），`STATUS_TOKEN`、`PROXY_TOKEN` 同理。
+
+### 🔐 客户端如何携带 PROXY_TOKEN（若已配置）
+
+三种方式任选其一：请求头 `Authorization: Bearer my-proxy-secret-666`、请求头 `x-api-key: my-proxy-secret-666`、或 JSON Body 里的 `"api_key": "my-proxy-secret-666"`（会被网关自动替换为池内真实 Key）。cURL 验证示例：
+
+```bash
+curl https://你的Worker域名/search \
+  -H "Authorization: Bearer my-proxy-secret-666" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"cloudflare workers tutorial"}'
+```
 
 ---
 

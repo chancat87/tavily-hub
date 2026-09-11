@@ -1,5 +1,9 @@
 import { PoolStats } from './types';
 
+function escapeHtml(s: unknown): string {
+  return String(s ?? '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m] as string));
+}
+
 /**
  * 渲染 Tavily Hub Uptime 状态大盘 HTML
  * 亮点特性：
@@ -63,7 +67,7 @@ export function renderStatusPage(stats: PoolStats, token: string): string {
           <div class="key-title">
             <span class="status-dot" style="background: ${dotColor};"></span>
             <span class="key-name">Key #${k.id}</span>
-            <code class="key-mono">${k.maskedKey}</code>
+            <code class="key-mono">${escapeHtml(k.maskedKey)}</code>
           </div>
           <span class="badge ${badgeClass}">${badgeText}</span>
         </div>
@@ -93,7 +97,7 @@ export function renderStatusPage(stats: PoolStats, token: string): string {
             <span class="meta-val">${k.lastUsed || '尚未测活'}</span>
           </div>
         </div>
-        ${k.lastError ? `<div class="key-error-msg">⚠️ ${k.lastError}</div>` : ''}
+        ${k.lastError ? `<div class="key-error-msg">⚠️ ${escapeHtml(k.lastError)}</div>` : ''}
       </div>
     `;
   };
@@ -372,7 +376,12 @@ export function renderStatusPage(stats: PoolStats, token: string): string {
 
   <script>
     // 页面载入瞬间抹去 URL 中的 ?token=... 防止截图泄密
-    const secretToken = ${JSON.stringify(token)};
+    // 防注入：JSON.stringify 不转义 "<"，手动改写为 unicode 转义防止突破 script 标签
+    const secretToken = ${JSON.stringify(token).replace(/</g, '\\u003c')};
+
+    function escHtml(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+    }
     if (window.history && window.history.replaceState) {
       window.history.replaceState({}, document.title, window.location.pathname);
     }
@@ -426,7 +435,7 @@ export function renderStatusPage(stats: PoolStats, token: string): string {
               <div class="key-title">
                 <span class="status-dot" style="background:\${dot};"></span>
                 <span class="key-name">Key #\${k.id}</span>
-                <code class="key-mono">\${k.maskedKey}</code>
+                <code class="key-mono">\${escHtml(k.maskedKey)}</code>
               </div>
               <span class="badge \${badge}">\${text}</span>
             </div>
@@ -446,7 +455,7 @@ export function renderStatusPage(stats: PoolStats, token: string): string {
               <div class="meta-item"><span class="meta-label">测活延迟</span><span class="meta-val \${latencyClass}">\${latencyDisplay}</span></div>
               <div class="meta-item"><span class="meta-label">最近测活</span><span class="meta-val">\${k.lastUsed || '尚未测活'}</span></div>
             </div>
-            \${k.lastError ? \`<div class="key-error-msg">⚠️ \${k.lastError}</div>\` : ''}
+            \${k.lastError ? \`<div class="key-error-msg">⚠️ \${escHtml(k.lastError)}</div>\` : ''}
           </div>
         \`;
       }).join('');

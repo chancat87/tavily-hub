@@ -11,6 +11,7 @@ export interface KeyItem {
   latency: number | null;
   lastUsed: number | null;
   lastError: string | null;
+  cooldownUntil: number | null;
 }
 
 export interface PoolStats {

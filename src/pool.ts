@@ -59,6 +59,7 @@ export class KeyPool {
         latency: null,
         lastUsed: null,
         lastError: null,
+        cooldownUntil: null,
       };
     });
 
@@ -73,7 +74,11 @@ export class KeyPool {
   public getNextKey(): KeyItem | null {
     if (this.keys.length === 0) return null;
 
-    const candidates = this.keys.filter((k) => k.status === 'active' || k.status === 'unknown');
+    // 优先选择 active/unknown 且不在冷却期的 Key（429 短时限速到期后自动回归）
+    const now = Date.now();
+    const candidates = this.keys.filter(
+      (k) => (k.status === 'active' || k.status === 'unknown') && !(k.cooldownUntil && k.cooldownUntil > now)
+    );
     // 如果全部耗尽，自动保底降级为在全部 Key 中重试，防止误判卡死
     const targetPool = candidates.length > 0 ? candidates : this.keys;
 
@@ -96,6 +101,19 @@ export class KeyPool {
       target.lastUsed = Date.now();
       target.status = status;
       target.lastError = errorMessage;
+    }
+  }
+
+  /**
+   * 429 短时限速处理：Key 保持活跃但进入冷却期，到期自动回归候选池（区别于 402/432 的真额度耗尽）
+   */
+  public recordRateLimit(keyId: number, cooldownMs: number): void {
+    const target = this.keys.find((k) => k.id === keyId);
+    if (target) {
+      target.lastUsed = Date.now();
+      target.status = 'active';
+      target.cooldownUntil = Date.now() + cooldownMs;
+      target.lastError = `Rate Limited (429), cooling down ${Math.round(cooldownMs / 1000)}s`;
     }
   }
 
@@ -144,6 +162,7 @@ export class KeyPool {
       }
     } catch (e: any) {
       item.latency = Date.now() - startTime;
+      item.status = 'unknown';
       item.lastError = e?.message || 'Usage probe failed';
     }
     return item.status;
@@ -151,9 +170,13 @@ export class KeyPool {
 
   /**
    * 并发对所有 Key 执行免费额度刷新与测活
+   * 分批并发：Cloudflare Workers 免费版单请求子请求上限 50，留出安全余量
    */
   public async probeAll(): Promise<void> {
-    await Promise.all(this.keys.map((k) => this.probeKey(k)));
+    const BATCH_SIZE = 45;
+    for (let i = 0; i < this.keys.length; i += BATCH_SIZE) {
+      await Promise.all(this.keys.slice(i, i + BATCH_SIZE).map((k) => this.probeKey(k)));
+    }
   }
 
   /**
